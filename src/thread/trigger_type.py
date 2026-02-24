@@ -1,0 +1,9 @@
+from enum import Enum
+
+
+class TriggerType(Enum):
+    FIRE_DETECTION = "FIRE_DETECTION"
+    DEVICE_FAILURE = "DEVICE_FAILURE"
+    HAZARD_SPREAD = "HAZARD_SPREAD"
+    MANUAL = "MANUAL"
+    PERIODIC = "PERIODIC"
