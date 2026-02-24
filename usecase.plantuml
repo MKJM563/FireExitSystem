@@ -1,0 +1,529 @@
+@startuml Route Processing Thread Class Diagram
+
+' Styling
+skinparam classAttributeIconSize 0
+skinparam classFontSize 11
+skinparam packageStyle rectangle
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName Arial
+
+title Fire Evacuation System - Route Processing Thread\nClass Diagram
+
+' ============================================
+' Core Graph Data Structures
+' ============================================
+
+package "Graph Data Structures" {
+
+    class Vertex {
+        - id: int
+        - x: float
+        - y: float
+        - floor: int
+        - type: VertexType
+        - deviceIds: List<int>
+        - accessibilityFlags: AccessibilityFlags
+        - isHazard: boolean
+        - hazardTimestamp: DateTime
+        - hazardConfidence: float
+        + Vertex(id, x, y, floor, type)
+        + addDevice(deviceId: int): void
+        + removeDevice(deviceId: int): void
+        + markAsHazard(timestamp: DateTime): void
+        + clearHazard(): void
+        + getLocation(): Location
+        + isAccessible(requirements: AccessibilityFlags): boolean
+    }
+
+    enum VertexType {
+        ROOM
+        INTERSECTION
+        EXIT
+        ASSEMBLY_POINT
+        REFUGE_AREA
+        STAIRWELL
+    }
+
+    class Edge {
+        - sourceId: int
+        - destId: int
+        - baseDistance: float
+        - safetyScore: float
+        - congestionFactor: float
+        - accessibilityFlags: AccessibilityFlags
+        - status: EdgeStatus
+        - lastUpdateTime: DateTime
+        + Edge(sourceId, destId, distance)
+        + updateSafetyScore(score: float): void
+        + updateCongestion(factor: float): void
+        + setStatus(status: EdgeStatus): void
+        + calculateCompositeWeight(weights: WeightFactors): float
+        + isPassable(): boolean
+        + isAccessible(requirements: AccessibilityFlags): boolean
+    }
+
+    enum EdgeStatus {
+        OPERATIONAL
+        DEGRADED
+        BLOCKED
+        IMPASSABLE
+    }
+
+    class AccessibilityFlags {
+        - wheelchairAccessible: boolean
+        - stretcherAccessible: boolean
+        - generalAccess: boolean
+        + AccessibilityFlags(wheelchair, stretcher, general)
+        + matches(requirements: AccessibilityFlags): boolean
+    }
+
+    class BuildingGraph {
+        - vertices: Map<int, Vertex>
+        - edges: Map<EdgeKey, Edge>
+        - adjacencyList: Map<int, List<Edge>>
+        - deviceToVertexMap: Map<int, int>
+        - readWriteLock: ReadWriteLock
+        + BuildingGraph()
+        + addVertex(vertex: Vertex): void
+        + addEdge(edge: Edge): void
+        + getVertex(id: int): Vertex
+        + getEdge(sourceId: int, destId: int): Edge
+        + getNeighbors(vertexId: int): List<Edge>
+        + getVertexByDevice(deviceId: int): Vertex
+        + lockForRead(): void
+        + lockForWrite(): void
+        + unlock(): void
+        + getVertexCount(): int
+        + getEdgeCount(): int
+    }
+
+    class EdgeKey {
+        - sourceId: int
+        - destId: int
+        + EdgeKey(sourceId, destId)
+        + equals(other: EdgeKey): boolean
+        + hashCode(): int
+    }
+}
+
+' ============================================
+' Route Calculation Components
+' ============================================
+
+package "Route Calculation" {
+
+    class RouteCalculator {
+        - graph: BuildingGraph
+        - weightFactors: WeightFactors
+        - routingMode: RoutingMode
+        + RouteCalculator(graph: BuildingGraph, config: Configuration)
+        + calculateRoute(startVertexId: int, targetType: VertexType): Route
+        + calculateAllRoutes(exitSignVertices: List<int>): Map<int, Route>
+        + setRoutingMode(mode: RoutingMode): void
+        + setWeightFactors(factors: WeightFactors): void
+        - dijkstraAlgorithm(start: int, targetType: VertexType): Route
+        - reconstructPath(previous: Map<int, int>, end: int): List<int>
+        - filterByAccessibility(edges: List<Edge>): List<Edge>
+    }
+
+    class WeightFactors {
+        - distanceWeight: float
+        - safetyWeight: float
+        - congestionWeight: float
+        + WeightFactors(dist, safety, congestion)
+        + getPreset(mode: RoutingMode): WeightFactors
+        + validate(): boolean
+    }
+
+    enum RoutingMode {
+        SAFETY_FIRST
+        SPEED
+        ACCESSIBILITY
+        + getWeightFactors(): WeightFactors
+    }
+
+    class Route {
+        - vertexPath: List<int>
+        - totalDistance: float
+        - confidenceScore: float
+        - calculationTime: DateTime
+        - urgency: UrgencyLevel
+        + Route(path: List<int>, distance: float)
+        + getNextVertex(currentVertex: int): int
+        + getDirection(currentVertex: int, signOrientation: float): Direction
+        + getDistanceToNext(currentVertex: int): float
+        + isValid(): boolean
+        + getConfidenceScore(): float
+        + setConfidenceScore(score: float): void
+    }
+
+    enum Direction {
+        NORTH
+        SOUTH
+        EAST
+        WEST
+        NORTHEAST
+        NORTHWEST
+        SOUTHEAST
+        SOUTHWEST
+        UP
+        DOWN
+        FORWARD
+        BACK
+        + toAngle(): float
+        + fromAngle(degrees: float): Direction
+    }
+
+    enum UrgencyLevel {
+        NORMAL
+        CAUTION
+        DANGER
+    }
+
+    class RouteCache {
+        - cache: Map<RouteCacheKey, CachedRoute>
+        - maxSize: int
+        - accessOrder: LinkedHashMap<RouteCacheKey, DateTime>
+        + RouteCache(maxSize: int)
+        + get(startId: int, targetType: VertexType): Route
+        + put(startId: int, targetType: VertexType, route: Route): void
+        + invalidate(vertexId: int, radius: int): void
+        + invalidateAll(): void
+        + getSize(): int
+        - evictLRU(): void
+    }
+
+    class RouteCacheKey {
+        - startVertexId: int
+        - targetType: VertexType
+        - routingMode: RoutingMode
+        + equals(other: RouteCacheKey): boolean
+        + hashCode(): int
+    }
+
+    class CachedRoute {
+        - route: Route
+        - timestamp: DateTime
+        - accessCount: int
+        + CachedRoute(route: Route, timestamp: DateTime)
+        + isValid(currentTime: DateTime, maxAge: Duration): boolean
+        + incrementAccess(): void
+    }
+}
+
+' ============================================
+' Hazard Management
+' ============================================
+
+package "Hazard Management" {
+
+    class HazardManager {
+        - activeHazards: Map<int, Hazard>
+        - graph: BuildingGraph
+        - propagationRadius: int
+        - spreadInterval: Duration
+        + HazardManager(graph: BuildingGraph)
+        + addHazard(deviceId: int, vertexId: int, confidence: float): void
+        + removeHazard(deviceId: int): void
+        + updateHazardSpread(): List<int>
+        + getAffectedEdges(hazardVertexId: int): List<Edge>
+        + applyHazardWeights(): void
+        - calculateSafetyScore(distance: int, confidence: float): float
+    }
+
+    class Hazard {
+        - deviceId: int
+        - vertexId: int
+        - detectionTime: DateTime
+        - confidence: float
+        - currentRadius: int
+        - maxRadius: int
+        - isActive: boolean
+        + Hazard(deviceId, vertexId, confidence)
+        + spreadRadius(): void
+        + deactivate(): void
+        + getAffectedVertices(graph: BuildingGraph): List<int>
+        + getAge(): Duration
+    }
+
+    class DeviceStatusTracker {
+        - deviceStatuses: Map<int, DeviceStatus>
+        - vertexToDeviceMap: Map<int, List<int>>
+        + DeviceStatusTracker()
+        + updateDeviceStatus(deviceId: int, status: DeviceStatus): void
+        + getDeviceStatus(deviceId: int): DeviceStatus
+        + getDevicesAtVertex(vertexId: int): List<int>
+        + getFailedDevices(): List<int>
+        + isDeviceOperational(deviceId: int): boolean
+    }
+
+    class DeviceStatus {
+        - deviceId: int
+        - deviceType: DeviceType
+        - status: OperationalStatus
+        - lastUpdateTime: DateTime
+        - vertexId: int
+        + DeviceStatus(deviceId, type, status)
+        + isOperational(): boolean
+        + isFailed(): boolean
+        + getTimeSinceUpdate(): Duration
+    }
+
+    enum DeviceType {
+        EXIT_SIGN
+        SMOKE_ALARM
+    }
+
+    enum OperationalStatus {
+        OPERATIONAL
+        DEGRADED
+        ERROR
+        OFFLINE
+    }
+}
+
+' ============================================
+' Messaging and Communication
+' ============================================
+
+package "Messaging" {
+
+    class MessageQueue {
+        - queue: ConcurrentQueue<Message>
+        - maxSize: int
+        + MessageQueue(maxSize: int)
+        + enqueue(message: Message): boolean
+        + dequeue(): Message
+        + isEmpty(): boolean
+        + getSize(): int
+    }
+
+    abstract class Message {
+        - timestamp: DateTime
+        - messageType: MessageType
+        + Message(type: MessageType)
+        + getType(): MessageType
+        + getTimestamp(): DateTime
+        {abstract} + serialize(): byte[]
+    }
+
+    class FireStatusMessage {
+        - deviceId: int
+        - vertexId: int
+        - fireDetected: boolean
+        - confidence: float
+        + FireStatusMessage(deviceId, vertexId, fireDetected)
+        + serialize(): byte[]
+    }
+
+    class DeviceDownMessage {
+        - deviceId: int
+        - deviceType: DeviceType
+        - vertexId: int
+        + DeviceDownMessage(deviceId, type, vertexId)
+        + serialize(): byte[]
+    }
+
+    class RouteUpdateMessage {
+        - exitSignId: int
+        - direction: Direction
+        - distanceToNext: float
+        - confidenceScore: float
+        - urgency: UrgencyLevel
+        - timestamp: DateTime
+        + RouteUpdateMessage(signId, direction, distance)
+        + serialize(): byte[]
+        + getNetworkPacket(): byte[]
+    }
+
+    enum MessageType {
+        FIRE_STATUS
+        DEVICE_DOWN
+        ROUTE_UPDATE
+        RECALCULATION_COMPLETE
+        MANUAL_TRIGGER
+    }
+}
+
+' ============================================
+' Main Thread Controller
+' ============================================
+
+package "Thread Control" {
+
+    class RouteProcessingThread {
+        - graph: BuildingGraph
+        - routeCalculator: RouteCalculator
+        - hazardManager: HazardManager
+        - deviceTracker: DeviceStatusTracker
+        - routeCache: RouteCache
+        - inputQueue: MessageQueue
+        - outputQueue: MessageQueue
+        - configuration: Configuration
+        - isRunning: boolean
+        - recalculationScheduler: Scheduler
+        + RouteProcessingThread(config: Configuration)
+        + start(): void
+        + stop(): void
+        + run(): void
+        - processMessages(): void
+        - handleFireStatus(msg: FireStatusMessage): void
+        - handleDeviceDown(msg: DeviceDownMessage): void
+        - handleManualTrigger(): void
+        - performRouteRecalculation(trigger: RecalculationTrigger): void
+        - generateRouteUpdateMessages(routes: Map<int, Route>): List<RouteUpdateMessage>
+        - sendToDeviceDataProcessing(messages: List<RouteUpdateMessage>): void
+        - shouldRecalculate(trigger: RecalculationTrigger): boolean
+    }
+
+    class RecalculationTrigger {
+        - triggerType: TriggerType
+        - affectedVertices: List<int>
+        - priority: int
+        - timestamp: DateTime
+        + RecalculationTrigger(type: TriggerType, vertices: List<int>)
+        + isFullRecalculation(): boolean
+        + getAffectedExitSigns(graph: BuildingGraph): List<int>
+    }
+
+    enum TriggerType {
+        FIRE_DETECTION
+        DEVICE_FAILURE
+        HAZARD_SPREAD
+        MANUAL
+        PERIODIC
+    }
+
+    class Scheduler {
+        - scheduledTasks: PriorityQueue<ScheduledTask>
+        + Scheduler()
+        + schedule(task: Runnable, delay: Duration): void
+        + scheduleRepeating(task: Runnable, interval: Duration): void
+        + cancel(taskId: int): void
+        + executeReadyTasks(): void
+    }
+
+    class Configuration {
+        - graphDefinitionFile: String
+        - weightFactors: WeightFactors
+        - routingMode: RoutingMode
+        - hazardPropagationRadius: int
+        - spreadIntervalSeconds: int
+        - cacheSize: int
+        - recalculationDebounceMs: int
+        + Configuration()
+        + loadFromFile(path: String): Configuration
+        + validate(): boolean
+        + saveToFile(path: String): void
+    }
+}
+
+' ============================================
+' Logging and Monitoring
+' ============================================
+
+package "Logging" {
+
+    class RouteLogger {
+        - logFilePath: String
+        - logLevel: LogLevel
+        - fileWriter: FileWriter
+        + RouteLogger(path: String, level: LogLevel)
+        + logRouteCalculation(route: Route, trigger: RecalculationTrigger, computeTime: Duration): void
+        + logHazardDetection(hazard: Hazard): void
+        + logDeviceFailure(deviceId: int, vertexId: int): void
+        + logRecalculationComplete(routeCount: int, computeTime: Duration): void
+        + logError(message: String, exception: Exception): void
+        + close(): void
+    }
+
+    enum LogLevel {
+        DEBUG
+        INFO
+        WARNING
+        ERROR
+        CRITICAL
+    }
+
+    class PerformanceMonitor {
+        - metrics: Map<String, Metric>
+        + PerformanceMonitor()
+        + recordCalculationTime(duration: Duration): void
+        + recordMessageProcessingTime(duration: Duration): void
+        + recordCacheHitRate(hits: int, misses: int): void
+        + getMetrics(): Map<String, Metric>
+        + reset(): void
+    }
+
+    class Metric {
+        - name: String
+        - count: int
+        - sum: float
+        - min: float
+        - max: float
+        + Metric(name: String)
+        + record(value: float): void
+        + getAverage(): float
+        + get90thPercentile(): float
+    }
+}
+
+' ============================================
+' Relationships
+' ============================================
+
+' Graph relationships
+BuildingGraph "1" *-- "many" Vertex : contains
+BuildingGraph "1" *-- "many" Edge : contains
+Edge "2" -- "1" Vertex : connects
+Vertex "1" -- "1" VertexType : has type
+Edge "1" -- "1" EdgeStatus : has status
+Vertex "1" *-- "1" AccessibilityFlags : has
+Edge "1" *-- "1" AccessibilityFlags : has
+BuildingGraph "1" *-- "many" EdgeKey : uses for lookup
+
+' Route calculation relationships
+RouteCalculator "1" -- "1" BuildingGraph : uses
+RouteCalculator "1" -- "1" WeightFactors : uses
+RouteCalculator "1" -- "1" RoutingMode : uses
+RouteCalculator "1" ..> "many" Route : creates
+Route "1" *-- "many" Direction : has next direction
+Route "1" -- "1" UrgencyLevel : has
+RouteCache "1" *-- "many" CachedRoute : stores
+CachedRoute "1" *-- "1" Route : wraps
+RouteCache "1" *-- "many" RouteCacheKey : indexed by
+
+' Hazard relationships
+HazardManager "1" -- "1" BuildingGraph : modifies
+HazardManager "1" *-- "many" Hazard : manages
+Hazard "1" -- "1" Vertex : located at
+DeviceStatusTracker "1" *-- "many" DeviceStatus : tracks
+DeviceStatus "1" -- "1" DeviceType : is type
+DeviceStatus "1" -- "1" OperationalStatus : has status
+
+' Messaging relationships
+MessageQueue "1" *-- "many" Message : contains
+FireStatusMessage --|> Message : extends
+DeviceDownMessage --|> Message : extends
+RouteUpdateMessage --|> Message : extends
+Message "1" -- "1" MessageType : has type
+
+' Thread control relationships
+RouteProcessingThread "1" -- "1" BuildingGraph : owns
+RouteProcessingThread "1" -- "1" RouteCalculator : uses
+RouteProcessingThread "1" -- "1" HazardManager : uses
+RouteProcessingThread "1" -- "1" DeviceStatusTracker : uses
+RouteProcessingThread "1" -- "1" RouteCache : uses
+RouteProcessingThread "1" -- "2" MessageQueue : input/output
+RouteProcessingThread "1" -- "1" Configuration : configured by
+RouteProcessingThread "1" -- "1" Scheduler : uses
+RouteProcessingThread "1" ..> "many" RecalculationTrigger : handles
+RecalculationTrigger "1" -- "1" TriggerType : has type
+
+' Logging relationships
+RouteProcessingThread "1" -- "1" RouteLogger : logs to
+RouteProcessingThread "1" -- "1" PerformanceMonitor : monitors
+PerformanceMonitor "1" *-- "many" Metric : tracks
+RouteLogger "1" -- "1" LogLevel : uses
+
+@enduml

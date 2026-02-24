@@ -1,0 +1,278 @@
+mesh network.
+
+Requirements Capture & Analysis
+
+System Level:
+
+The Fire Evacuation System shall provide a safe evacuation route in the event that a fire blocks a route, by updating the Exit Signs.
+
+The Fire Evacuation System shall provide information on the status of the Networked Smoke Alarms and Exit Signs.
+
+The Fire Evacuation System should run autonomously.
+
+The Fire Evacuation System should prevent unauthorised access.
+
+The Fire Evacuation System shall support buildings, with a single floor.
+
+Network Level:
+
+The network module must facilitate robust communication between fire escape signs, smoke alarms and the fire evacuation system.
+
+The network module must be secure such that no third parties are able to intercept and manipulate the behaviour of the fire evacuation system.
+
+The network module should allow functionality to be executed on receipt of command messages from the smoke alarms and fire escape signs.
+
+The network shall utilise User Datagram Protocol (UDP) to send and receive packets on the network.
+
+The network shall use packets of fixed size 1024 bytes to allow for future proofing of functionality, and for efficient bandwidth use. (UDP messages are 1500 bytes but our messages 1024 bytes.)
+
+The network messages shall be composed of a 16-byte header and 1008-byte payload.
+
+The network header shall contain a message source, message destination, message type, payload length and checksum.
+
+The network payload shall be padded with bytes of value 0, if the full message size is not reached.
+
+The network shall contain a low priority queue for normal messages.
+
+The network shall contain a high priority queue for safety related messages.
+
+Device Data Processing Thread:
+
+The Device Data Processing thread shall take messages from the low and high priority queues, from the network level.
+
+The Device Data Processing thread shall always process the high priority queue messages first.
+
+The Device Data Processing thread shall extrapolate, device statuses from the low priority messages, and process them:
+
+The Device Data Processing thread shall log the device statuses, to show compliance with the law.
+
+The Device Data Processing should pass the device statuses onto the GUI thread.
+
+The Device Data Processing thread shall send a “Device Down” message to the route processing thread and GUI, if the device status is “Error”
+
+The Device Data Processing shall send a device status request every 5 minutes (-+ 1 minute), to the networking thread.
+
+The Device Data Processing thread shall send a “Device Down” message to the Route Processing thread and GUI, if a device status is not received 3 minutes upon request.
+
+The Device Data Processing thread shall extrapolate fire status from high priority messages (from the smoke alarms):
+
+The Device Data Processing thread shall trigger the Route Processing thread and send the relevant fire statuses and device id to it, when a first status message is “true”.
+
+The Device Data Processing thread shall send a fire alert to the Frontend, when a fire status message is “true”.
+
+The Device Data Processing thread shall receive route information from the Route Processing thread, and send an update direction message, targeted at specific Exit Signs to the Network Transmit thread.
+
+GUI Level:
+
+ The GUI will show a real time map of the fire escape route.
+
+The GUI shall receive a custom Yaml with the route in the form of edges, junctions and exits.
+
+The route shall be displayed on the front-end with the route overlayed on top of the building floor plan.
+
+The GUI will show the relevant smoke alarms being triggered on the overlay to provide a visual representation.
+
+The GUI shall receive a fire alert from the Data Processing Thread with the smoke alarm ID to accurately map it.
+
+ The GUI will provide a view of the Networked Smoke Alarms and Exit Signs.
+
+The GUI will receive status updates on the smoke alarms
+
+The GUI will receive status updates on the smoke alarms.
+
+The GUI will show inactive smoke alarms by receiving a status update from the Digital Processing Thread.
+
+The GUI will alert when a device is down in the network.
+
+ The GUI will provide a real time update of where a fire is detected.
+
+The GUI will receive a high priority message from the Data Processing Thread with the ID of the triggered smoke alarms to map it onto the overlay.
+
+The GUI will provide a pop-up alert when it receives a fire detection packet.
+
+The GUI pop-up could offer the advice to call 999.
+
+ The GUI will show notifications to the user
+
+The GUI will show notifications in a list
+
+The GUI will prioritise the notifications in the list based on the priority of the notification.
+
+
+
+Route processing & Map Visualisation
+
+Route Processing
+
+Graph representation & Data Structure
+
+The route processing thread shall represent the building topologically as a weighted directed graph
+
+Vertices shall represent physical locations
+
+Edges shall represent paths with multiple contributory attributes for weighting
+
+Each vertex should contain
+
+Unique identifier
+
+Locational coordinates in physical space, in metres
+
+Vertex type
+
+Associated devices (fire exits, smoke alarms etc) and their IDs
+
+Each edge should contain
+
+Source vertex ID
+
+Destination vertex ID
+
+Physical distance in metres
+
+Safety score (0-100) based on external factors
+
+Congestion score
+
+Accessibility rating
+
+Status: degraded/blocked/impassable etc.
+
+The route processing thread shall have, cached, in memory
+
+Complete graph structure of the building, as adjacency list/matrix in representation
+
+Current edge weights to be dynamically updates
+
+Hazard locations
+
+Device status and relevant mapping
+
+Precomputed routeing for common unobstructed paths
+
+The graph data structure shall support
+
+Vertex lookup by ID in constant time
+
+Edge lookup by source and destination vertex
+
+Iteration over all edges for global recalculation
+
+Mutex locks for read/write threads
+
+Route Calculation
+
+The route processing thread shall implement a modified version of Dijkstra with some of the following potential adaptations
+
+Multi-edge weighting combining distance, safety and congestion
+
+Priority queue based on composite edge weighting
+
+Multiple destination support
+
+Edge weighting will be calculated using a custom formula
+
+Route calculation shall support multiple routing modes
+
+Safety, sped and accessibility
+
+Calculation should consider constraints such as
+
+What threshold for a safety score should be determined inaccessible/impassable
+
+Edges/vertex with blocked or impassable tags shall be excluded from calculation
+
+If no valid route exists program will spontaneously combust
+
+The route processing thread shall calculate routes from
+
+Each exit sign location (independent calculation)
+
+To the nearest designated exit/assembly point
+
+The thread should implement route caching
+
+Precomputed routes for common pairs upon initialisation
+
+Cache said routes with timestamps and criterion for decisions
+
+Invalidate entries when hazard detected within 3 vertices
+
+Hazard detection and dynamic weighting
+
+Upon receiving a "Fire Status: true" message from the Device data Processing thread, the route processing thread shall
+
+Identify the vertex associated with the reporting Smoke Alarm device ID
+
+Mark the vertex as a hazard location with timestamp
+
+Update safety scores for all edges within hazard propagate radius
+
+Hazard propagation shall affect edge safety scores based on distance
+
+Upon receiving a "Device Down" message from device data thread, the route Processing thread should
+
+Identify all vertices associated with the failed device ID
+
+If device is a Smoke Alarm:
+
+Mark associated edges as degraded (in turn reducing confidence & increasing caution weight by 10%)
+
+Log the event of the "Sensor coverage lost at <xyz location?>"
+
+If device is an Exit Sign:
+
+Mark vertex as "display unavailable"
+
+Attempt to reroute evacuees through adjacent functional signs
+
+Log event of the "Exit Sign offline at <xyz location?>"
+
+The thread shall attribute confidence scores to the propagating hazard, with
+
+Each hazard having a confidence score based on
+
+Number of confirming sensors
+
+The freshness levels of the data (I guess time since last sensor reading)
+
+Sensors operational status
+
+Recalculation triggers
+
+The thread shall trigger recalculation upon several factors, such as
+
+Receipt of a fire status true from the device thread
+
+Receipt of a device down event for an exist sign or alarm
+
+Hazard spread update at determined intervals
+
+Manual request from GUI
+
+Route recalculation shall be performed intelligently
+
+Full recalculation when new hazard detected or major topology change (e.g. > 20% of edges affected)
+
+Incremental recalculation: When localized change affects < 20% of routes
+
+Identify affected smart exits (within x hops of changed edges)
+
+Recalculate only routes starting from affected signs
+
+Reuse cached routes for unaffected ones
+
+Exit sign direction display
+
+To do
+
+Communication with device data processing thread and update notification generation
+
+Logging and audit trail stuff
+
+Configuration
+
+
+Map visualization (not a thread(?))
+
+Building layout visualisation
