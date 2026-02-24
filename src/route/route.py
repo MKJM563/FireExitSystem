@@ -1,19 +1,22 @@
 from __future__ import annotations
 import math
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from src.route.direction import Direction
 from src.route.urgency_level import UrgencyLevel
 
 
 class Route:
-    def __init__(self, path: List[int], distance: float) -> None:
+    def __init__(self, path: List[int], distance: float,
+                 vertex_positions: Optional[Dict[int, Tuple[float, float]]] = None) -> None:
         self._vertex_path: List[int] = path
         self._total_distance: float = distance
         self._confidence_score: float = 1.0
         self._calculation_time: datetime = datetime.now()
         self._urgency: UrgencyLevel = UrgencyLevel.NORMAL
+        # Optional mapping of vertex_id -> (x, y) for direction calculation
+        self._vertex_positions: Dict[int, Tuple[float, float]] = vertex_positions or {}
 
     @property
     def vertex_path(self) -> List[int]:
@@ -42,10 +45,28 @@ class Route:
         return None
 
     def get_direction(self, current_vertex: int, sign_orientation: float) -> Direction:
-        """Return a compass Direction based on the sign's orientation angle (degrees)."""
-        # sign_orientation: 0 = North, 90 = East, etc.
-        # Map angle to 8 compass directions relative to sign orientation
-        angle = sign_orientation % 360
+        """Return a compass Direction from current_vertex toward the next vertex.
+
+        If vertex positions are available, the bearing from the current vertex to
+        the next vertex is computed and then adjusted by sign_orientation (degrees,
+        0 = North clockwise).  Falls back to sign_orientation alone when coordinates
+        are not stored in this route.
+        """
+        next_v = self.get_next_vertex(current_vertex)
+        if (
+            next_v is not None
+            and current_vertex in self._vertex_positions
+            and next_v in self._vertex_positions
+        ):
+            x0, y0 = self._vertex_positions[current_vertex]
+            x1, y1 = self._vertex_positions[next_v]
+            # bearing: 0 = North (+y), 90 = East (+x)
+            bearing = math.degrees(math.atan2(x1 - x0, y1 - y0)) % 360
+            # adjust for sign orientation (sign faces sign_orientation degrees)
+            relative_angle = (bearing - sign_orientation) % 360
+        else:
+            relative_angle = sign_orientation % 360
+
         sectors = [
             (22.5, Direction.NORTH),
             (67.5, Direction.NORTHEAST),
@@ -58,7 +79,7 @@ class Route:
             (360.0, Direction.NORTH),
         ]
         for threshold, direction in sectors:
-            if angle < threshold:
+            if relative_angle < threshold:
                 return direction
         return Direction.FORWARD
 

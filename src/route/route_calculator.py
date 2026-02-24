@@ -54,7 +54,12 @@ class RouteCalculator:
             vertex = self._graph.get_vertex(current)
             if vertex is not None and vertex.type == target_type and current != start:
                 path = self._reconstruct_path(previous, current)
-                return Route(path, distances[current])
+                positions = {
+                    vid: (v.x, v.y)
+                    for vid in path
+                    if (v := self._graph.get_vertex(vid)) is not None
+                }
+                return Route(path, distances[current], vertex_positions=positions)
 
             for edge in self._filter_by_accessibility(self._graph.get_neighbors(current)):
                 if not edge.is_passable():

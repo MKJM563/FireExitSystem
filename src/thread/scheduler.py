@@ -26,6 +26,8 @@ class Scheduler:
         self._scheduled_tasks: List[ScheduledTask] = []
         self._lock: threading.Lock = threading.Lock()
         self._next_id: int = 0
+        # Track cancelled task IDs separately so cancellation survives re-scheduling
+        self._cancelled_ids: set = set()
 
     def schedule(self, task: Callable, delay: timedelta) -> int:
         """Schedule a one-shot task after delay. Returns task ID."""
@@ -49,10 +51,10 @@ class Scheduler:
 
     def cancel(self, task_id: int) -> None:
         with self._lock:
+            self._cancelled_ids.add(task_id)
             for task in self._scheduled_tasks:
                 if task.task_id == task_id:
                     task.cancelled = True
-                    break
 
     def execute_ready_tasks(self) -> None:
         """Execute all tasks whose run_at time has passed."""
@@ -61,7 +63,7 @@ class Scheduler:
         with self._lock:
             while self._scheduled_tasks and self._scheduled_tasks[0].run_at <= now:
                 task = heapq.heappop(self._scheduled_tasks)
-                if not task.cancelled:
+                if not task.cancelled and task.task_id not in self._cancelled_ids:
                     ready.append(task)
 
         for task in ready:
@@ -69,10 +71,11 @@ class Scheduler:
                 task.task()
             except Exception as exc:
                 _logger.error("Exception in scheduled task %d: %s", task.task_id, exc, exc_info=True)
-            # Re-schedule repeating tasks; re-check cancelled under lock to avoid racing cancel()
+            # Re-schedule repeating tasks; check against cancelled_ids set to avoid
+            # a race where cancel() is called after the task is popped from the heap
             if task.interval is not None:
                 with self._lock:
-                    if not task.cancelled:
+                    if task.task_id not in self._cancelled_ids:
                         new_task = ScheduledTask(
                             task.task_id,
                             time.monotonic() + task.interval,

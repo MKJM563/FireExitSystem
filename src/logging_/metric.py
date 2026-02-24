@@ -1,5 +1,8 @@
 import math
-from typing import List
+from collections import deque
+from typing import Deque
+
+_MAX_ROLLING_WINDOW = 1000
 
 
 class Metric:
@@ -9,7 +12,8 @@ class Metric:
         self._sum: float = 0.0
         self._min: float = float("inf")
         self._max: float = float("-inf")
-        self._values: List[float] = []
+        # Rolling window of recent values for percentile calculations
+        self._values: Deque[float] = deque(maxlen=_MAX_ROLLING_WINDOW)
 
     @property
     def name(self) -> str:

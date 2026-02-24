@@ -143,7 +143,6 @@ class RouteProcessingThread(threading.Thread):
         for sign_id, route in routes.items():
             if not route.is_valid():
                 continue
-            next_vertex = route.get_next_vertex(sign_id)
             direction = route.get_direction(sign_id, 0.0)
             distance = route.get_distance_to_next(sign_id)
             msg = RouteUpdateMessage(sign_id, direction, distance)
