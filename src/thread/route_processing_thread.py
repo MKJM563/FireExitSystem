@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 
 from src.graph.building_graph import BuildingGraph
 from src.graph.vertex_type import VertexType
+from src.graph.yaml_graph_builder import YamlGraphBuilder
 from src.route.route_calculator import RouteCalculator
 from src.route.route_cache import RouteCache
 from src.route.route import Route
@@ -45,6 +46,21 @@ class RouteProcessingThread(threading.Thread):
     @property
     def graph(self) -> BuildingGraph:
         return self._graph
+
+    def load_graph_from_yaml(self, yaml_path: str) -> YamlGraphBuilder:
+        """Populate the internal graph from a floor-plan DSL YAML file.
+
+        The YAML must follow the format produced by
+        :class:`~fire_evacuation_system.floor_plan_editor.FloorPlanEditor`.
+        Returns the :class:`~src.graph.yaml_graph_builder.YamlGraphBuilder`
+        used for the conversion so callers can inspect the string-to-integer
+        vertex-ID mapping.
+        """
+        builder = YamlGraphBuilder()
+        self._graph = builder.build_from_file(yaml_path)
+        self._route_calculator = RouteCalculator(self._graph, self._configuration)
+        self._hazard_manager = HazardManager(self._graph)
+        return builder
 
     @property
     def input_queue(self) -> MessageQueue:

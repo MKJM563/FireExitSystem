@@ -34,6 +34,7 @@ import time
 from typing import List
 
 import pytest
+import yaml
 
 from src.graph.building_graph import BuildingGraph
 from src.graph.edge import Edge
@@ -41,6 +42,7 @@ from src.graph.edge_status import EdgeStatus
 from src.graph.vertex import Vertex
 from src.graph.vertex_type import VertexType
 from src.graph.accessibility_flags import AccessibilityFlags
+from src.graph.yaml_graph_builder import YamlGraphBuilder
 from src.hazard.device_type import DeviceType
 from src.hazard.hazard_manager import HazardManager
 from src.hazard.device_status_tracker import DeviceStatusTracker
@@ -750,3 +752,207 @@ class TestRouteProcessingThread:
 
         edge_1_2 = graph.get_edge(1, 2)
         assert edge_1_2.safety_score < 100.0
+
+
+# ---------------------------------------------------------------------------
+# YamlGraphBuilder tests
+# ---------------------------------------------------------------------------
+
+#: Minimal DSL dict that mirrors the format produced by FloorPlanEditor.
+_SAMPLE_DSL: dict = {
+    "units": "meters",
+    "junctions": [
+        {"id": "J1", "position": [10.0, 20.0]},
+        {"id": "J2", "position": [30.0, 20.0]},
+    ],
+    "terminals": [
+        {"id": "T1", "position": [50.0, 20.0]},
+    ],
+    "corridors": [
+        {"id": "C1", "from": "J1", "to": "J2", "length": 20.0},
+        {"id": "C2", "from": "J2", "to": "T1", "length": 20.0},
+    ],
+    "rooms": [
+        {"id": "R1", "attached_to": "J1", "door_cost": 2.0},
+        {"id": "R2", "attached_to": None, "door_cost": 1.5},
+    ],
+    "room_connections": [
+        {"from": "R1", "to": "R2", "cost": 10.0},
+    ],
+    "fire_exits": [
+        {"id": "FE1", "attached_to": "T1"},
+        {"id": "FE2", "attached_to": "J2"},
+    ],
+}
+
+
+class TestYamlGraphBuilder:
+    """Unit tests for YamlGraphBuilder – DSL YAML → BuildingGraph conversion."""
+
+    def _build(self) -> tuple:
+        builder = YamlGraphBuilder()
+        graph = builder.build_from_dict(_SAMPLE_DSL)
+        return builder, graph
+
+    # -- vertex types ----------------------------------------------------------
+
+    def test_junctions_become_intersection_vertices(self):
+        _, graph = self._build()
+        # J1 and J2 must exist as INTERSECTION
+        junction_types = {
+            v.type for v in graph.get_all_vertices()
+            if v.type == VertexType.INTERSECTION
+        }
+        assert VertexType.INTERSECTION in junction_types
+
+    def test_terminals_become_exit_vertices(self):
+        _, graph = self._build()
+        exit_types = {
+            v.type for v in graph.get_all_vertices()
+            if v.type == VertexType.EXIT
+        }
+        assert VertexType.EXIT in exit_types
+
+    def test_rooms_become_room_vertices(self):
+        _, graph = self._build()
+        room_types = {
+            v.type for v in graph.get_all_vertices()
+            if v.type == VertexType.ROOM
+        }
+        assert VertexType.ROOM in room_types
+
+    def test_correct_vertex_count(self):
+        # junctions(2) + terminals(1) + rooms(2) = 5 vertices
+        _, graph = self._build()
+        assert graph.get_vertex_count() == 5
+
+    # -- vertex positions ------------------------------------------------------
+
+    def test_junction_position_preserved(self):
+        builder, graph = self._build()
+        j1_vid = builder.get_vertex_id("J1")
+        v = graph.get_vertex(j1_vid)
+        assert v is not None
+        assert v.x == pytest.approx(10.0)
+        assert v.y == pytest.approx(20.0)
+
+    def test_terminal_position_preserved(self):
+        builder, graph = self._build()
+        t1_vid = builder.get_vertex_id("T1")
+        v = graph.get_vertex(t1_vid)
+        assert v is not None
+        assert v.x == pytest.approx(50.0)
+        assert v.y == pytest.approx(20.0)
+
+    # -- corridor edges --------------------------------------------------------
+
+    def test_corridors_create_bidirectional_edges(self):
+        builder, graph = self._build()
+        j1 = builder.get_vertex_id("J1")
+        j2 = builder.get_vertex_id("J2")
+        assert graph.get_edge(j1, j2) is not None
+        assert graph.get_edge(j2, j1) is not None
+
+    def test_corridor_edge_distance(self):
+        builder, graph = self._build()
+        j1 = builder.get_vertex_id("J1")
+        j2 = builder.get_vertex_id("J2")
+        edge = graph.get_edge(j1, j2)
+        assert edge.base_distance == pytest.approx(20.0)
+
+    # -- portal links (room attached_to junction) ------------------------------
+
+    def test_attached_room_has_portal_edges(self):
+        builder, graph = self._build()
+        r1 = builder.get_vertex_id("R1")
+        j1 = builder.get_vertex_id("J1")
+        assert graph.get_edge(r1, j1) is not None
+        assert graph.get_edge(j1, r1) is not None
+
+    def test_portal_edge_uses_door_cost(self):
+        builder, graph = self._build()
+        r1 = builder.get_vertex_id("R1")
+        j1 = builder.get_vertex_id("J1")
+        assert graph.get_edge(r1, j1).base_distance == pytest.approx(2.0)
+
+    def test_unattached_room_has_no_portal_edges(self):
+        builder, graph = self._build()
+        r2 = builder.get_vertex_id("R2")
+        j1 = builder.get_vertex_id("J1")
+        # R2 has attached_to=None so no portal edge should exist to J1
+        assert graph.get_edge(r2, j1) is None
+
+    # -- room-to-room connections ----------------------------------------------
+
+    def test_room_connection_creates_bidirectional_edges(self):
+        builder, graph = self._build()
+        r1 = builder.get_vertex_id("R1")
+        r2 = builder.get_vertex_id("R2")
+        assert graph.get_edge(r1, r2) is not None
+        assert graph.get_edge(r2, r1) is not None
+
+    def test_room_connection_cost(self):
+        builder, graph = self._build()
+        r1 = builder.get_vertex_id("R1")
+        r2 = builder.get_vertex_id("R2")
+        assert graph.get_edge(r1, r2).base_distance == pytest.approx(10.0)
+
+    # -- fire-exit signs -------------------------------------------------------
+
+    def test_fire_exits_attached_as_devices(self):
+        builder, graph = self._build()
+        t1_vid = builder.get_vertex_id("T1")
+        fe1_id = builder.get_vertex_id("FE1")
+        vertex = graph.get_vertex(t1_vid)
+        assert fe1_id in vertex.get_device_ids()
+
+    def test_fire_exit_on_junction(self):
+        builder, graph = self._build()
+        j2_vid = builder.get_vertex_id("J2")
+        fe2_id = builder.get_vertex_id("FE2")
+        vertex = graph.get_vertex(j2_vid)
+        assert fe2_id in vertex.get_device_ids()
+
+    # -- get_vertex_id ---------------------------------------------------------
+
+    def test_unknown_label_returns_none(self):
+        builder, _ = self._build()
+        assert builder.get_vertex_id("UNKNOWN_999") is None
+
+    def test_known_labels_return_integers(self):
+        builder, _ = self._build()
+        for label in ("J1", "J2", "T1", "R1", "R2"):
+            vid = builder.get_vertex_id(label)
+            assert isinstance(vid, int)
+
+    # -- RouteProcessingThread integration ------------------------------------
+
+    def test_load_graph_from_yaml_populates_thread_graph(self, tmp_path):
+        """load_graph_from_yaml() must replace the thread graph with one built
+        from the DSL YAML and wire up the route calculator correctly."""
+        yaml_file = tmp_path / "test_floor.yaml"
+        yaml_file.write_text(yaml.dump(_SAMPLE_DSL))
+
+        thread = RouteProcessingThread(_make_config())
+        assert thread.graph.get_vertex_count() == 0  # empty before loading
+
+        builder = thread.load_graph_from_yaml(str(yaml_file))
+
+        assert thread.graph.get_vertex_count() == 5
+        assert builder.get_vertex_id("T1") is not None
+
+    def test_load_graph_route_calculator_uses_new_graph(self, tmp_path):
+        """After load_graph_from_yaml() the route calculator must find EXIT
+        vertices from the loaded floor plan."""
+        yaml_file = tmp_path / "floor.yaml"
+        yaml_file.write_text(yaml.dump(_SAMPLE_DSL))
+
+        thread = RouteProcessingThread(_make_config())
+        builder = thread.load_graph_from_yaml(str(yaml_file))
+
+        j1_vid = builder.get_vertex_id("J1")
+        route = thread._route_calculator.calculate_route(j1_vid, VertexType.EXIT)
+        # J1 → J2 → T1 (EXIT) should be reachable
+        assert route is not None
+        assert route.is_valid()
+
