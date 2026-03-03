@@ -2,135 +2,99 @@ units: meters
 junctions:
 - id: J1
   position:
-  - 31.6
-  - 31.5
+  - 33.3
+  - 50.4
 - id: J2
   position:
-  - 72.0
-  - 87.7
+  - 51.3
+  - 75.3
+- id: J3
+  position:
+  - 52.4
+  - 53.7
+- id: J4
+  position:
+  - 52.2
+  - 29.7
+- id: J5
+  position:
+  - 14.0
+  - 8.5
 terminals:
 - id: T1
   position:
-  - 28.5
-  - 24.4
+  - 51.8
+  - 13.7
 - id: T2
   position:
-  - 77.4
-  - 90.7
+  - 8.7
+  - 8.5
+- id: T3
+  position:
+  - 8.6
+  - 50.2
+- id: T4
+  position:
+  - 50.7
+  - 87.6
 corridors:
 - id: C1
-  from: J1
-  to: T1
-  length: 7.7
+  from: T3
+  to: J1
+  length: 24.7
 - id: C2
+  from: J1
+  to: J3
+  length: 19.4
+- id: C3
+  from: J3
+  to: J2
+  length: 21.6
+- id: C4
   from: J2
+  to: T4
+  length: 12.3
+- id: C5
+  from: J3
+  to: J4
+  length: 24.0
+- id: C6
+  from: J4
+  to: T1
+  length: 16.0
+- id: C7
+  from: J5
   to: T2
-  length: 6.2
+  length: 5.3
 rooms:
 - id: R1
-  attached_to: null
+  attached_to: J1
   door_cost: 2.0
 - id: R2
-  attached_to: null
+  attached_to: J3
   door_cost: 2.0
 - id: R3
-  attached_to: null
+  attached_to: J4
   door_cost: 2.0
 - id: R4
-  attached_to: J1
-  door_cost: 2.0
-- id: R5
-  attached_to: J1
-  door_cost: 2.0
-- id: R6
-  attached_to: null
-  door_cost: 2.0
-- id: R7
-  attached_to: null
-  door_cost: 2.0
-- id: R8
-  attached_to: J2
-  door_cost: 2.0
-- id: R9
-  attached_to: J2
-  door_cost: 2.0
-- id: R10
-  attached_to: J1
+  attached_to: J5
   door_cost: 2.0
 room_connections:
-- from: R2
-  to: R10
-  cost: 14.2
-- from: R10
-  to: R4
-  cost: 14.1
 - from: R4
-  to: R2
-  cost: 14.6
-- from: R2
-  to: R1
-  cost: 22.8
-- from: R1
-  to: R4
-  cost: 23.0
-- from: R1
-  to: R9
-  cost: 27.6
-- from: R9
   to: R3
-  cost: 25.3
-- from: R3
-  to: R4
-  cost: 20.4
-- from: R4
-  to: R5
-  cost: 24.9
-- from: R5
-  to: R3
-  cost: 27.9
-- from: R3
-  to: R5
-  cost: 27.9
-- from: R5
-  to: R6
-  cost: 24.3
-- from: R6
-  to: R7
-  cost: 20.7
-- from: R7
-  to: R8
-  cost: 22.1
-- from: R3
-  to: R7
-  cost: 26.7
-- from: R3
-  to: R8
-  cost: 27.5
-- from: R8
-  to: R9
-  cost: 24.1
+  cost: 24.4
 fire_exits:
 - id: FE1
-  attached_to: T1
+  attached_to: T4
 - id: FE2
-  attached_to: T2
+  attached_to: T3
 - id: FE3
-  attached_to: R9
-- id: FE4
-  attached_to: R1
-- id: FE5
   attached_to: R2
-- id: FE6
+- id: FE4
   attached_to: R4
-- id: FE7
-  attached_to: J1
-- id: FE8
-  attached_to: R5
-- id: FE9
-  attached_to: R6
-- id: FE10
-  attached_to: R7
-- id: FE11
+- id: FE5
   attached_to: R3
-- id: FE12
-  attached_to: R8
+- id: FE6
+  attached_to: J3
+- id: FE7
+  attached_to: R1
