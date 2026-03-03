@@ -6,6 +6,7 @@ from src.graph.vertex import Vertex, Location
 from src.graph.edge import Edge
 from src.graph.building_graph import BuildingGraph
 from src.graph.yaml_graph_builder import YamlGraphBuilder
+from src.graph.graph_cache import GraphCache
 
 __all__ = [
     "VertexType",
@@ -17,4 +18,5 @@ __all__ = [
     "Edge",
     "BuildingGraph",
     "YamlGraphBuilder",
+    "GraphCache",
 ]

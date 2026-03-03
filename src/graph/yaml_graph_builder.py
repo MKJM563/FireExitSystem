@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
 import yaml
 
@@ -8,6 +8,9 @@ from src.graph.building_graph import BuildingGraph
 from src.graph.edge import Edge
 from src.graph.vertex import Vertex
 from src.graph.vertex_type import VertexType
+
+if TYPE_CHECKING:
+    from src.graph.graph_cache import GraphCache
 
 
 class YamlGraphBuilder:
@@ -43,15 +46,65 @@ class YamlGraphBuilder:
         """Return the integer vertex ID assigned to *label*, or ``None``."""
         return self._id_map.get(label)
 
+    @property
+    def id_map(self) -> Dict[str, int]:
+        """Return the label-to-ID mapping dictionary."""
+        return self._id_map
+
     # ------------------------------------------------------------------
     # Build from file / dict
     # ------------------------------------------------------------------
 
-    def build_from_file(self, yaml_path: str) -> BuildingGraph:
-        """Parse *yaml_path* and return the corresponding :class:`BuildingGraph`."""
+    def build_from_file(
+        self,
+        yaml_path: str,
+        cache: Optional["GraphCache"] = None,
+        restore_runtime_state: bool = False,
+    ) -> BuildingGraph:
+        """Parse *yaml_path* and return the corresponding :class:`BuildingGraph`.
+
+        Args:
+            yaml_path: Path to the YAML floor-plan file.
+            cache: Optional :class:`GraphCache` for persistent caching.
+                   If provided and a valid cache exists, the graph is loaded
+                   from disk instead of parsing the YAML.
+            restore_runtime_state: If True and cache is provided, attempt to
+                   load the runtime state (with all modifications like safety
+                   scores, hazards, etc.) first. Falls back to initial state
+                   cache, then YAML parsing.
+
+        Returns:
+            The constructed or cached :class:`BuildingGraph`.
+        """
+        # Try loading runtime state first if requested
+        if cache is not None and restore_runtime_state:
+            runtime = cache.load_runtime_state(yaml_path)
+            if runtime is not None:
+                graph, id_map = runtime
+                self._id_map = id_map
+                self._next_id = max(id_map.values(), default=0) + 1
+                return graph
+
+        # Try loading from initial state cache
+        if cache is not None:
+            cached = cache.load(yaml_path)
+            if cached is not None:
+                graph, id_map = cached
+                # Restore the id_map to this builder instance
+                self._id_map = id_map
+                self._next_id = max(id_map.values(), default=0) + 1
+                return graph
+
+        # Cache miss or no cache provided - parse YAML
         with open(yaml_path) as fh:
             data = yaml.safe_load(fh)
-        return self.build_from_dict(data)
+        graph = self.build_from_dict(data)
+
+        # Save to initial state cache if provided
+        if cache is not None:
+            cache.save(yaml_path, graph, self._id_map)
+
+        return graph
 
     def build_from_dict(self, data: dict) -> BuildingGraph:
         """Build a :class:`BuildingGraph` from the parsed DSL *data* dictionary."""

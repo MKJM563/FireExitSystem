@@ -78,3 +78,18 @@ class BuildingGraph:
 
     def __repr__(self) -> str:
         return f"BuildingGraph(vertices={len(self._vertices)}, edges={len(self._edges)})"
+
+    # ------------------------------------------------------------------
+    # Pickle support (threading.RLock is not picklable)
+    # ------------------------------------------------------------------
+
+    def __getstate__(self) -> dict:
+        """Prepare instance for pickling by excluding the lock."""
+        state = self.__dict__.copy()
+        del state["_lock"]
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        """Restore instance after unpickling, recreating the lock."""
+        self.__dict__.update(state)
+        self._lock = threading.RLock()
